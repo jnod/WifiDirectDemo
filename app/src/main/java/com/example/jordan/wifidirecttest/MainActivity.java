@@ -34,7 +34,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
     private Spinner spinner;
     ArrayAdapter<ConnectionSpinnerItem> adapter;
 
-    private JSONSocket client;
+    private JSONSocket socket;
     private String macAddress;
 
     private ServerSocket serverSocket;
@@ -138,15 +138,25 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
         Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
 
         if (!isOwner) {
-            // connect to the owner
-            Socket socket = new Socket();
-            try {
-                socket.bind(null);
-                socket.connect((new InetSocketAddress(owner.deviceAddress, 8888)), 500);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            startClient(owner);
         }
+    }
+
+    private void startClient(final WifiP2pDevice owner) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Socket socket = new Socket();
+                try {
+                    socket.bind(null);
+                    socket.connect((new InetSocketAddress(owner.deviceAddress, 8888)), 500);
+
+                    setSocket(socket);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }
+        });
     }
 
     public void onDisconnected() {
@@ -162,19 +172,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
                     while (true) {
                         Socket socket = serverSocket.accept();
 
-                        JSONSocket jsonSocket = new JSONSocket(socket, new JSONSocket.JSONMessageCallback() {
-                            @Override
-                            public void receiveMessage(final JSONObject message) {
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        receiveMessage(message);
-                                    }
-                                });
-                            }
-                        });
-
-                        setClient(jsonSocket);
+                        setSocket(socket);
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
@@ -183,8 +181,18 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
         }).start();
     }
 
-    private void setClient(JSONSocket client) {
-        this.client = client;
+    private void setSocket(Socket socket) throws IOException {
+        JSONSocket jsonSocket = new JSONSocket(socket, new JSONSocket.JSONMessageCallback() {
+            @Override
+            public void receiveMessage(final JSONObject message) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        receiveMessage(message);
+                    }
+                });
+            }
+        });
     }
 
     private void receiveMessage(JSONObject message) {
@@ -192,7 +200,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
 
         try {
             if (message.getString("mac_addr").equals(macAddress)) {
-                
+
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -200,8 +208,8 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
     }
 
     private void sendMessage(JSONObject message) throws IOException {
-        if (client != null) {
-            client.send(message);
+        if (socket != null) {
+            socket.send(message);
         } else {
             throw new IOException();
         }
