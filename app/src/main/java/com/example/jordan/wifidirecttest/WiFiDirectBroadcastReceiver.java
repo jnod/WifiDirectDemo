@@ -43,8 +43,8 @@ public class WiFiDirectBroadcastReceiver extends BroadcastReceiver {
             //NetworkInfo networkInfo = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
             if (wifiP2pInfo.groupFormed) {
                 connected = true;
-                WifiP2pGroup group = intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_GROUP);
-                mActivity.onGroupFormed(wifiP2pInfo.isGroupOwner, group.getOwner());
+                //WifiP2pGroup group = intent.getParcelableExtra(WifiP2pManager.EXTRA_WIFI_P2P_GROUP);
+                mActivity.onGroupFormed(wifiP2pInfo.isGroupOwner, wifiP2pInfo.groupOwnerAddress);
             } else if (connected) {
                 connected = false;
                 mActivity.onDisconnected();

@@ -10,15 +10,18 @@ import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -32,6 +35,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
     private WiFiDirectBroadcastReceiver wiFiDirectBroadcastReceiver;
 
     private Spinner spinner;
+    private TextView textLatency, textAverageLatency;
     ArrayAdapter<ConnectionSpinnerItem> adapter;
 
     private JSONSocket socket;
@@ -41,6 +45,8 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
 
     double average = 0;
     int count = 0;
+
+    private final String TAG = "MainActivity";
 
 
     @Override
@@ -65,6 +71,9 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
         spinner = (Spinner) findViewById(R.id.spinner_connections);
         adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
         spinner.setAdapter(adapter);
+
+        textLatency = (TextView) findViewById(R.id.text_latency);
+        textAverageLatency = (TextView) findViewById(R.id.text_average_latency);
 
         startServer();
 
@@ -134,29 +143,36 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
         }
     }
 
-    public void onGroupFormed(boolean isOwner, WifiP2pDevice owner) {
+    public void onGroupFormed(boolean isOwner, InetAddress ownerAddress) {
         Toast.makeText(MainActivity.this, "Connected", Toast.LENGTH_SHORT).show();
+        Log.i(TAG, "isOwner: " + isOwner);
+        Log.i(TAG, "Owner Address: " + ownerAddress.toString());
 
         if (!isOwner) {
-            startClient(owner);
+            startClient(ownerAddress);
         }
     }
 
-    private void startClient(final WifiP2pDevice owner) {
+    private void startClient(final InetAddress ownerAddress) {
+        Log.i(TAG,"Starting Client");
         new Thread(new Runnable() {
             @Override
             public void run() {
+                Log.i(TAG,"Creating Socket");
                 Socket socket = new Socket();
                 try {
                     socket.bind(null);
-                    socket.connect((new InetSocketAddress(owner.deviceAddress, 8888)), 500);
+                    Log.i(TAG,"Connecting to Owner");
+                    socket.connect((new InetSocketAddress(ownerAddress, 8888)), 500);
 
                     setSocket(socket);
                 } catch (IOException e) {
                     e.printStackTrace();
+                } catch (JSONException e) {
+                    e.printStackTrace();
                 }
             }
-        });
+        }).start();
     }
 
     public void onDisconnected() {
@@ -164,47 +180,64 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Pe
     }
 
     private void startServer() {
+        Log.i(TAG, "Starting Server");
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
                     serverSocket = new ServerSocket(8888);
+                    Log.i(TAG,"Server Started");
                     while (true) {
                         Socket socket = serverSocket.accept();
+                        Log.i(TAG,"Socket Accepted");
 
                         setSocket(socket);
                     }
                 } catch (IOException e) {
+                    e.printStackTrace();
+                } catch (JSONException e) {
                     e.printStackTrace();
                 }
             }
         }).start();
     }
 
-    private void setSocket(Socket socket) throws IOException {
-        JSONSocket jsonSocket = new JSONSocket(socket, new JSONSocket.JSONMessageCallback() {
+    private void setSocket(Socket socket) throws IOException, JSONException {
+        this.socket = new JSONSocket(socket, new JSONSocket.JSONMessageCallback() {
             @Override
             public void receiveMessage(final JSONObject message) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        receiveMessage(message);
+                long timestamp = System.nanoTime();
+
+                try {
+                    if (message.getString("mac_addr").equals(macAddress)) {
+                        // sent by this device, display latency
+                        count++;
+                        final double latency = ((double)(timestamp - message.getLong("time_sent"))) / 1000000;
+                        average = ((count - 1) * average + latency) / count;
+
+
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                textLatency.setText(String.format("Latency: %.4f", latency));
+                                textAverageLatency.setText(String.format("Average Latency: %.4f", average));
+                            }
+                        });
+                    } else {
+                        // send by other device, echo it back
+                        try {
+                            sendMessage(message);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
                     }
-                });
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
             }
         });
-    }
-
-    private void receiveMessage(JSONObject message) {
-        long timestamp = System.nanoTime();
-
-        try {
-            if (message.getString("mac_addr").equals(macAddress)) {
-
-            }
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
+        this.socket.start();
+        Log.i(TAG,"Socket Set");
     }
 
     private void sendMessage(JSONObject message) throws IOException {
